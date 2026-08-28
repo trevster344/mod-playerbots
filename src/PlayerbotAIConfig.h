@@ -419,6 +419,7 @@ public:
     bool allowSummonWhenBotIsDead;
     int reviveBotWhenSummoned;
     bool botRepairWhenSummon;
+    bool botsAssistMeetingStone;
     bool autoInitOnly;
     bool resetInstanceIdForAltBots;
     float autoInitEquipLevelLimitRatio;
