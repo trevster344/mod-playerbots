@@ -21,6 +21,7 @@
 #include "ChatValue.h"
 #include "CollisionValue.h"
 #include "CraftValue.h"
+#include "PortalValue.h"
 #include "CurrentCcTargetValue.h"
 #include "CurrentTargetValue.h"
 #include "DistanceValue.h"
@@ -106,6 +107,7 @@ public:
     {
         creators["active spell"] = &ValueContext::active_spell;
         creators["craft"] = &ValueContext::craft;
+        creators["portal"] = &ValueContext::portal;
         creators["collision"] = &ValueContext::collision;
         creators["skip spells list"] = &ValueContext::skip_spells_list_value;
         creators["nearest game objects"] = &ValueContext::nearest_game_objects;
@@ -354,6 +356,7 @@ private:
     static UntypedValue* active_spell(PlayerbotAI* botAI) { return new ActiveSpellValue(botAI); }
     static UntypedValue* group(PlayerbotAI* botAI) { return new IsInGroupValue(botAI); }
     static UntypedValue* craft(PlayerbotAI* botAI) { return new CraftValue(botAI); }
+    static UntypedValue* portal(PlayerbotAI* botAI) { return new PortalValue(botAI); }
     static UntypedValue* collision(PlayerbotAI* botAI) { return new CollisionValue(botAI); }
     static UntypedValue* already_seen_players(PlayerbotAI* botAI) { return new AlreadySeenPlayersValue(botAI); }
     static UntypedValue* new_player_nearby(PlayerbotAI* botAI) { return new NewPlayerNearbyValue(botAI); }
