@@ -245,6 +245,16 @@ AiPlayerbot.BotsAssistMeetingStone = 1
 # Default: 1 (enabled)
 AiPlayerbot.AutoAcceptSummons = 1
 
+# Enable/Disable paid mage portals. Players can ask mage bots to open a portal
+# to a city (command: "portal <city>") for a fee.
+# Default: 1 (enabled)
+AiPlayerbot.PortalEnabled = 1
+
+# Fee charged in copper when a player asks a mage bot to open a portal to a city.
+# The player pays by trading this amount to the bot.
+# Default: 50000 (5 gold)
+AiPlayerbot.PortalCost = 50000
+
 #
 #
 ####################################################################################################

@@ -639,6 +639,8 @@ bool PlayerbotAIConfig::Initialize()
     botRepairWhenSummon = sConfigMgr->GetOption<bool>("AiPlayerbot.BotRepairWhenSummon", true);
     botsAssistMeetingStone = sConfigMgr->GetOption<bool>("AiPlayerbot.BotsAssistMeetingStone", true);
     autoAcceptSummons = sConfigMgr->GetOption<bool>("AiPlayerbot.AutoAcceptSummons", true);
+    portalEnabled = sConfigMgr->GetOption<bool>("AiPlayerbot.PortalEnabled", true);
+    portalCost = sConfigMgr->GetOption<uint32>("AiPlayerbot.PortalCost", 50000);
     autoInitOnly = sConfigMgr->GetOption<bool>("AiPlayerbot.AutoInitOnly", false);
     resetInstanceIdForAltBots = sConfigMgr->GetOption<bool>("AiPlayerbot.ResetInstanceIdForAltBots", false);
     autoInitEquipLevelLimitRatio = sConfigMgr->GetOption<float>("AiPlayerbot.AutoInitEquipLevelLimitRatio", 1.0);

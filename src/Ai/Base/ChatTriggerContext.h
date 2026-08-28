@@ -94,6 +94,7 @@ public:
         creators["leave vehicle"] = &ChatTriggerContext::leave_vehicle;
         creators["cast"] = &ChatTriggerContext::cast;
         creators["castnc"] = &ChatTriggerContext::castnc;
+        creators["portal"] = &ChatTriggerContext::portal;
         creators["invite"] = &ChatTriggerContext::invite;
         creators["lfg"] = &ChatTriggerContext::lfg;
         creators["spell"] = &ChatTriggerContext::spell;
@@ -197,6 +198,7 @@ private:
     static Trigger* lfg(PlayerbotAI* botAI) { return new ChatCommandTrigger(botAI, "lfg"); }
     static Trigger* cast(PlayerbotAI* botAI) { return new ChatCommandTrigger(botAI, "cast"); }
     static Trigger* castnc(PlayerbotAI* botAI) { return new ChatCommandTrigger(botAI, "castnc"); }
+    static Trigger* portal(PlayerbotAI* botAI) { return new ChatCommandTrigger(botAI, "portal"); }
     static Trigger* talk(PlayerbotAI* botAI) { return new ChatCommandTrigger(botAI, "talk"); }
     static Trigger* enter_vehicle(PlayerbotAI* botAI) { return new ChatCommandTrigger(botAI, "enter vehicle"); }
     static Trigger* leave_vehicle(PlayerbotAI* botAI) { return new ChatCommandTrigger(botAI, "leave vehicle"); }

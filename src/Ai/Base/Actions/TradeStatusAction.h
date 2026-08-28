@@ -11,6 +11,7 @@
 
 class Player;
 class PlayerbotAI;
+struct PortalData;
 
 class TradeStatusAction : public QueryItemUsageAction
 {
@@ -24,6 +25,8 @@ private:
     void CancelTrade();
     bool CheckTrade();
     int32 CalculateCost(Player* player, bool sell);
+    bool CheckPortalPayment(Player* trader, PortalData& portal);
+    void CompletePortalTrade(Player* trader, PortalData& portal);
 };
 
 #endif
