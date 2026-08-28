@@ -61,6 +61,7 @@ void ChatCommandHandlerStrategy::InitTriggers(std::vector<TriggerNode*>& trigger
     triggers.push_back(new TriggerNode("leave vehicle", { NextAction("leave vehicle", relevance) }));
     triggers.push_back(new TriggerNode("cast", { NextAction("cast custom spell", relevance) }));
     triggers.push_back(new TriggerNode("castnc", { NextAction("cast custom nc spell", relevance) }));
+    triggers.push_back(new TriggerNode("portal", { NextAction("cast portal", relevance) }));
     triggers.push_back(new TriggerNode("revive", { NextAction("spirit healer", relevance) }));
     triggers.push_back(new TriggerNode("runaway", { NextAction("runaway chat shortcut", relevance) }));
     triggers.push_back(new TriggerNode("warning", { NextAction("runaway chat shortcut", relevance) }));

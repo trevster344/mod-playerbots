@@ -421,6 +421,8 @@ public:
     bool botRepairWhenSummon;
     bool botsAssistMeetingStone;
     bool autoAcceptSummons;
+    bool portalEnabled;
+    uint32 portalCost;
     bool autoInitOnly;
     bool resetInstanceIdForAltBots;
     float autoInitEquipLevelLimitRatio;

@@ -14,6 +14,7 @@
 #include "PlayerbotSecurity.h"
 #include "PlayerbotTextMgr.h"
 #include "Playerbots.h"
+#include "PortalValue.h"
 #include "RandomPlayerbotMgr.h"
 #include "SetCraftAction.h"
 
@@ -76,8 +77,13 @@ bool TradeStatusAction::Execute(Event event)
         uint32 status = 0;
         p << status;
 
+        PortalData& portal = AI_VALUE(PortalData&, "portal");
+        bool const portalTrade = portal.enabled && trader->GetGUID() == portal.payerGuid;
+        if (portalTrade && !CheckPortalPayment(trader, portal))
+            return false;
+
         uint32 discount = sRandomPlayerbotMgr.GetTradeDiscount(bot, trader);
-        if (CheckTrade())
+        if (portalTrade || CheckTrade())
         {
             std::map<uint32, uint32> givenItemIds, takenItemIds;
             for (uint32 slot = 0; slot < TRADE_SLOT_TRADED_COUNT; ++slot)
@@ -94,8 +100,15 @@ bool TradeStatusAction::Execute(Event event)
             bot->GetSession()->HandleAcceptTradeOpcode(p);
             if (bot->GetTradeData())
             {
-                sRandomPlayerbotMgr.SetTradeDiscount(bot, trader, discount);
+                if (!portalTrade)
+                    sRandomPlayerbotMgr.SetTradeDiscount(bot, trader, discount);
                 return false;
+            }
+
+            if (portalTrade)
+            {
+                CompletePortalTrade(trader, portal);
+                return true;
             }
 
             for (std::map<uint32, uint32>::iterator i = givenItemIds.begin(); i != givenItemIds.end(); ++i)
@@ -122,6 +135,13 @@ bool TradeStatusAction::Execute(Event event)
 
             return true;
         }
+    }
+    else if (status == TRADE_STATUS_TRADE_CANCELED || status == TRADE_STATUS_CLOSE_WINDOW ||
+             status == TRADE_STATUS_TRADE_COMPLETE)
+    {
+        PortalData& portal = AI_VALUE(PortalData&, "portal");
+        if (portal.enabled && trader->GetGUID() == portal.payerGuid)
+            portal.Reset();
     }
     else if (status == TRADE_STATUS_BEGIN_TRADE)
     {
@@ -391,4 +411,51 @@ int32 TradeStatusAction::CalculateCost(Player* player, bool sell)
     }
 
     return sum;
+}
+
+bool TradeStatusAction::CheckPortalPayment(Player* trader, PortalData& portal)
+{
+    if (!trader->GetTradeData() || trader->GetTradeData()->GetMoney() != portal.cost)
+    {
+        bot->Whisper(PlayerbotTextMgr::instance().GetBotTextOrDefault(
+                         "portal_trade_wrong_amount", "Please trade exactly %cost for the portal",
+                         {{"%cost", chat->formatMoney(portal.cost)}}),
+                     LANG_UNIVERSAL, trader);
+        return false;
+    }
+
+    for (uint32 slot = 0; slot < TRADE_SLOT_TRADED_COUNT; ++slot)
+    {
+        if (trader->GetTradeData()->GetItem((TradeSlots)slot))
+        {
+            bot->Whisper(PlayerbotTextMgr::instance().GetBotTextOrDefault(
+                             "portal_trade_wrong_amount", "Please trade exactly %cost for the portal",
+                             {{"%cost", chat->formatMoney(portal.cost)}}),
+                         LANG_UNIVERSAL, trader);
+            return false;
+        }
+    }
+
+    return true;
+}
+
+void TradeStatusAction::CompletePortalTrade(Player* trader, PortalData& portal)
+{
+    uint32 const spellId = portal.spellId;
+    std::string const city = portal.city;
+    uint32 const cost = portal.cost;
+    portal.Reset();
+
+    if (!botAI->CastSpell(spellId, bot))
+    {
+        bot->Whisper(PlayerbotTextMgr::instance().GetBotTextOrDefault(
+                         "portal_cast_failed", "Something went wrong while opening the portal", {}),
+                     LANG_UNIVERSAL, trader);
+        return;
+    }
+
+    bot->Whisper(PlayerbotTextMgr::instance().GetBotTextOrDefault(
+                     "portal_success", "Here's your portal to %city (%cost)",
+                     {{"%city", city}, {"%cost", chat->formatMoney(cost)}}),
+                 LANG_UNIVERSAL, trader);
 }
