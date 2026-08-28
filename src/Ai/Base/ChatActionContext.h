@@ -13,6 +13,7 @@
 #include "BuffAction.h"
 #include "BuyAction.h"
 #include "CastCustomSpellAction.h"
+#include "CastPortalAction.h"
 #include "ChangeChatAction.h"
 #include "ChangeStrategyAction.h"
 #include "ChangeTalentsAction.h"
@@ -163,6 +164,7 @@ public:
         creators["gossip hello"] = &ChatActionContext::gossip_hello;
         creators["cast custom spell"] = &ChatActionContext::cast_custom_spell;
         creators["cast custom nc spell"] = &ChatActionContext::cast_custom_nc_spell;
+        creators["cast portal"] = &ChatActionContext::cast_portal;
         creators["invite"] = &ChatActionContext::invite;
         creators["spell"] = &ChatActionContext::spell;
         creators["rti"] = &ChatActionContext::rti;
@@ -242,6 +244,7 @@ private:
     static Action* spell(PlayerbotAI* botAI) { return new TellSpellAction(botAI); }
     static Action* cast_custom_spell(PlayerbotAI* botAI) { return new CastCustomSpellAction(botAI); }
     static Action* cast_custom_nc_spell(PlayerbotAI* botAI) { return new CastCustomNcSpellAction(botAI); }
+    static Action* cast_portal(PlayerbotAI* botAI) { return new CastPortalAction(botAI); }
     static Action* tank_attack_chat_shortcut(PlayerbotAI* botAI) { return new TankAttackChatShortcutAction(botAI); }
     static Action* grind_chat_shortcut(PlayerbotAI* botAI) { return new GrindChatShortcutAction(botAI); }
     static Action* flee_chat_shortcut(PlayerbotAI* botAI) { return new FleeChatShortcutAction(botAI); }
