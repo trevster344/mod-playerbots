@@ -9,11 +9,18 @@
 #include "Event.h"
 #include "GridNotifiers.h"
 #include "GridNotifiersImpl.h"
+#include "Group.h"
 #include "NearestGameObjects.h"
+#include "ObjectAccessor.h"
 #include "PlayerbotAIConfig.h"
+#include "PlayerbotMgr.h"
 #include "PlayerbotTextMgr.h"
 #include "Playerbots.h"
 #include "PositionValue.h"
+#include "ServerFacade.h"
+
+#include <algorithm>
+#include <vector>
 
 bool UseMeetingStoneAction::Execute(Event event)
 {
@@ -25,12 +32,6 @@ bool UseMeetingStoneAction::Execute(Event event)
     p.rpos(0);
     ObjectGuid guid;
     p >> guid;
-
-    if (master->GetTarget() && master->GetTarget() != bot->GetGUID())
-        return false;
-
-    if (!master->GetTarget() && master->GetGroup() != bot->GetGroup())
-        return false;
 
     if (master->IsBeingTeleported())
         return false;
@@ -51,10 +52,65 @@ bool UseMeetingStoneAction::Execute(Event event)
         return false;
 
     GameObjectTemplate const* goInfo = gameObject->GetGOInfo();
-    if (!goInfo || goInfo->entry != 179944)
+    if (!goInfo || (goInfo->type != GAMEOBJECT_TYPE_MEETINGSTONE && goInfo->entry != 179944))
         return false;
 
-    return Teleport(master, bot, false);
+    if (master->GetTarget() == bot->GetGUID())
+        return Teleport(master, bot, false);
+
+    if (master->GetGroup() != bot->GetGroup())
+        return false;
+
+    return SummonGroupMembers(gameObject);
+}
+
+bool UseMeetingStoneAction::SummonGroupMembers(GameObject* stone)
+{
+    if (!sPlayerbotAIConfig.botsAssistMeetingStone)
+        return false;
+
+    if (bot->IsInCombat())
+        return false;
+
+    if (bot->GetMapId() != stone->GetMapId() || bot->GetDistance(stone) > sPlayerbotAIConfig.sightDistance)
+    {
+        botAI->TellMasterNoFacing(PlayerbotTextMgr::instance().GetBotTextOrDefault(
+            "meeting_stone_assist_too_far", "I'm too far from the meeting stone to help summon", {}));
+        return false;
+    }
+
+    uint32 minLevel = stone->GetGOInfo()->meetingstone.minLevel;
+    if (bot->GetLevel() < minLevel)
+    {
+        botAI->TellMasterNoFacing(PlayerbotTextMgr::instance().GetBotTextOrDefault(
+            "meeting_stone_assist_level", "I'm not high enough level to use this meeting stone", {}));
+        return false;
+    }
+
+    bool assisted = false;
+
+    // Best-effort: click the summoning portal the master opened by using the
+    // meeting stone. The target bot handles its own summon via AutoAcceptSummons,
+    // so the direct teleport is intentionally NOT used here - it could race the
+    // master's summon channel and teleport the master onto the target.
+    std::list<GameObject*> targets;
+    AnyGameObjectInObjectRangeCheck u_check(bot, sPlayerbotAIConfig.reactDistance);
+    Acore::GameObjectListSearcher<AnyGameObjectInObjectRangeCheck> searcher(bot, targets, u_check);
+    Cell::VisitObjects(bot, searcher, sPlayerbotAIConfig.reactDistance);
+
+    for (GameObject* portal : targets)
+    {
+        if (portal->isSpawned() && portal->GetGOInfo() && portal->GetGOInfo()->entry == 179944)
+        {
+            portal->Use(bot);
+            botAI->TellMasterNoFacing(PlayerbotTextMgr::instance().GetBotTextOrDefault(
+                "meeting_stone_assist_portal", "I'll help with your summon", {}));
+            assisted = true;
+            break;
+        }
+    }
+
+    return assisted;
 }
 
 bool SummonAction::Execute(Event /*event*/)
