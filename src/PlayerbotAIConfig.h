@@ -420,6 +420,7 @@ public:
     int reviveBotWhenSummoned;
     bool botRepairWhenSummon;
     bool botsAssistMeetingStone;
+    bool autoAcceptSummons;
     bool autoInitOnly;
     bool resetInstanceIdForAltBots;
     float autoInitEquipLevelLimitRatio;
