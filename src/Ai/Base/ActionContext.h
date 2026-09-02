@@ -88,6 +88,7 @@ public:
         creators["move to travel target"] = &ActionContext::move_to_travel_target;
         creators["move out of collision"] = &ActionContext::move_out_of_collision;
         creators["move random"] = &ActionContext::move_random;
+        creators["surface to breathe"] = &ActionContext::surface_to_breathe;
         creators["attack"] = &ActionContext::melee;
         creators["melee"] = &ActionContext::melee;
         creators["switch to melee"] = &ActionContext::switch_to_melee;
@@ -296,6 +297,7 @@ private:
     static Action* move_to_travel_target(PlayerbotAI* botAI) { return new MoveToTravelTargetAction(botAI); }
     static Action* move_out_of_collision(PlayerbotAI* botAI) { return new MoveOutOfCollisionAction(botAI); }
     static Action* move_random(PlayerbotAI* botAI) { return new MoveRandomAction(botAI); }
+    static Action* surface_to_breathe(PlayerbotAI* botAI) { return new SurfaceToBreatheAction(botAI); }
     static Action* check_values(PlayerbotAI* botAI) { return new CheckValuesAction(botAI); }
     static Action* greet(PlayerbotAI* botAI) { return new GreetAction(botAI); }
     static Action* check_mail(PlayerbotAI* botAI) { return new CheckMailAction(botAI); }

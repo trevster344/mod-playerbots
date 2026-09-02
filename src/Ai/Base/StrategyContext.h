@@ -10,6 +10,7 @@
 #include "AggressiveStrategy.h"
 #include "AttackEnemyPlayersStrategy.h"
 #include "BattlegroundStrategy.h"
+#include "BreatheStrategy.h"
 #include "CastTimeStrategy.h"
 #include "ChatCommandHandlerStrategy.h"
 #include "CombatStrategy.h"
@@ -131,6 +132,7 @@ public:
         creators["worldbuff"] = &StrategyContext::world_buff;
         creators["use bobber"] = &StrategyContext::bobber_strategy;
         creators["master fishing"] = &StrategyContext::master_fishing;
+        creators["surface"] = &StrategyContext::surface;
         creators["wait for attack"] = &StrategyContext::wait_for_attack;
         creators["focus heal targets"] = &StrategyContext::focus_heal_targets;
     }
@@ -206,6 +208,7 @@ private:
     static Strategy* world_buff(PlayerbotAI* botAI) { return new WorldBuffStrategy(botAI); }
     static Strategy* bobber_strategy(PlayerbotAI* botAI) { return new UseBobberStrategy(botAI); }
     static Strategy* master_fishing(PlayerbotAI* botAI) { return new MasterFishingStrategy(botAI); }
+    static Strategy* surface(PlayerbotAI* botAI) { return new BreatheStrategy(botAI); }
     static Strategy* wait_for_attack(PlayerbotAI* botAI) { return new WaitForAttackStrategy(botAI); }
     static Strategy* focus_heal_targets(PlayerbotAI* botAI) { return new FocusHealTargetsStrategy(botAI); }
 };
