@@ -330,4 +330,18 @@ private:
     float range;
 };
 
+class SurfaceToBreatheAction : public MovementAction
+{
+public:
+    SurfaceToBreatheAction(PlayerbotAI* botAI) : MovementAction(botAI, "surface to breathe") {}
+
+    bool Execute(Event event) override;
+    bool isUseful() override;
+
+private:
+    float lastZ = 0.0f;
+    uint32 lastMoveAttemptTime = 0;
+    uint32 stuckSince = 0;
+};
+
 #endif
