@@ -1416,6 +1416,15 @@ AiPlayerbot.RestrictedHealerDPSMaps = "33,34,36,43,47,48,70,90,109,129,209,229,2
 # Default: 1 (enabled)
 AiPlayerbot.EnableNewRpgStrategy = 1
 
+# Bots surface to refill their air before drowning when underwater.
+# Default: 1 (enabled)
+AiPlayerbot.AvoidDrowning = 1
+
+# Fraction of the breath timer consumed before a bot surfaces to breathe.
+# Lower values make bots surface sooner (and more often); range 0-1.
+# Default: 0.5 (surface when 50% of air is used)
+AiPlayerbot.SurfaceAirThreshold = 0.5
+
 # Control probability weights for RPG status of bots. Takes effect only when the status meets its premise.​
 # Sum of weights need not be 100. Set to 0 to disable the status.
 #

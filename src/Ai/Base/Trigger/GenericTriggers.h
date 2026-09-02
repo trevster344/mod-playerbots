@@ -781,6 +781,20 @@ public:
     bool IsActive() override;
 };
 
+class LowAirTrigger : public Trigger
+{
+public:
+    LowAirTrigger(PlayerbotAI* botAI) : Trigger(botAI, "low air") {}
+
+    bool IsActive() override;
+
+private:
+    uint32 underwaterSince = 0;
+    uint32 refillUntil = 0;
+    bool lowAirReached = false;
+    bool wasActive = false;
+};
+
 class HasNearestAddsTrigger : public Trigger
 {
 public:

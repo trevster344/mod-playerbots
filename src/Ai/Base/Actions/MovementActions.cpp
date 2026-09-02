@@ -2956,3 +2956,78 @@ bool MoveAwayFromPlayerWithDebuffAction::Execute(Event /*event*/)
 }
 
 bool MoveAwayFromPlayerWithDebuffAction::isPossible() { return bot->CanFreeMove(); }
+
+bool SurfaceToBreatheAction::isUseful() { return sPlayerbotAIConfig.avoidDrowning && bot->IsAlive(); }
+
+bool SurfaceToBreatheAction::Execute(Event /*event*/)
+{
+    if (!bot->IsAlive())
+        return false;
+
+    LiquidData const& liquidData = bot->GetLiquidData();
+    if (liquidData.Status == LIQUID_MAP_NO_WATER || liquidData.Level == INVALID_HEIGHT)
+        return false;
+
+    // Target a depth just under the surface: the head stays above water (breath
+    // regenerates) while the swim flag is preserved so the bot does not sink.
+    const float surfaceZ = liquidData.Level - 1.0f;
+    const uint32 now = getMSTime();
+
+    // Already at the surface: hold position while the air refills.
+    if (bot->GetPositionZ() >= surfaceZ - 0.5f)
+    {
+        lastZ = bot->GetPositionZ();
+        lastMoveAttemptTime = 0;
+        stuckSince = 0;
+        return true;
+    }
+
+    // Track altitude progress so a bot that cannot actually rise is detected
+    // instead of this action silently "succeeding" while the bot drowns.
+    const bool rising = bot->GetPositionZ() > lastZ + 0.1f;
+    if (rising)
+    {
+        lastZ = bot->GetPositionZ();
+        lastMoveAttemptTime = now;
+        stuckSince = 0;
+    }
+    else if (!lastMoveAttemptTime)
+        lastMoveAttemptTime = now;
+
+    // No measurable altitude gain for 2s -> issue an un-gated MovePoint. Still
+    // stuck 1s after that -> teleport to the surface as a guaranteed escape.
+    if (lastMoveAttemptTime && now - lastMoveAttemptTime >= 2000)
+    {
+        if (!stuckSince)
+        {
+            stuckSince = now;
+            LOG_INFO("playerbots", "[Surface] {} not rising: z {:.1f}, target z {:.1f}, liquid level {:.1f}, status {}",
+                     bot->GetName(), bot->GetPositionZ(), surfaceZ, liquidData.Level, uint32(liquidData.Status));
+        }
+
+        if (now - stuckSince >= 1000)
+        {
+            LOG_INFO("playerbots", "[Surface] {} forcing teleport to surface (z {:.1f} -> {:.1f})", bot->GetName(),
+                     bot->GetPositionZ(), surfaceZ);
+            bot->NearTeleportTo(bot->GetPositionX(), bot->GetPositionY(), surfaceZ, bot->GetOrientation());
+            lastZ = bot->GetPositionZ();
+            lastMoveAttemptTime = 0;
+            stuckSince = 0;
+            return true;
+        }
+
+        // Force the swim flag and move straight up, bypassing MoveTo gating.
+        bot->SetSwim(true);
+        bot->GetMotionMaster()->Clear();
+        bot->GetMotionMaster()->MovePoint(0, bot->GetPositionX(), bot->GetPositionY(), surfaceZ,
+                                          FORCED_MOVEMENT_NONE, 0.f, 0.f, false, true);
+        return true;
+    }
+
+    // Normal ascent through the shared movement pipeline.
+    lastZ = bot->GetPositionZ();
+    AI_VALUE(LastMovement&, "last movement").clear();
+    MoveTo(bot->GetMapId(), bot->GetPositionX(), bot->GetPositionY(), surfaceZ, false, false, false, false,
+           MovementPriority::MOVEMENT_FORCED);
+    return true;
+}
