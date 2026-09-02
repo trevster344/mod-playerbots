@@ -2605,6 +2605,20 @@ AiPlayerbot.GuildRepliesRate = 100
 # Bots without a master will say their lines
 AiPlayerbot.RandomBotSayWithoutMaster = 0
 
+# Chance (0-100) a bot replies to chat it is not directly addressed in.
+# Bots always answer whispers and whole-name mentions. 0 disables replies to
+# unaddressed chatter while keeping direct replies.
+AiPlayerbot.ChatReplyChance = 25
+
+# When enabled only one bot answers a conversation, so several bots hearing the
+# same message do not all reply at once.
+AiPlayerbot.ChatReplySingleSpeaker = 1
+
+# Bots act on chat requests from real players: invite the speaker to the group,
+# cast a buff on them, or conjure and trade food/water (mage). 0 keeps bots chatty
+# but never functional.
+AiPlayerbot.ConversationActions = 1
+
 #
 #
 ####################################################################################################

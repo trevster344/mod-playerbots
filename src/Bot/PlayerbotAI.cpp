@@ -8,6 +8,7 @@
 #include "BudgetValues.h"
 #include "ChannelMgr.h"
 #include "CharacterPackets.h"
+#include "ChatConversationCoordinator.h"
 #include "ChatHelper.h"
 #include "CheckMountStateAction.h"
 #include "Common.h"
@@ -52,6 +53,7 @@
 #include "Unit.h"
 #include "UpdateTime.h"
 #include "Vehicle.h"
+#include <cctype>
 #include <cmath>
 #include <mutex>
 #include <sstream>
@@ -1229,16 +1231,16 @@ void PlayerbotAI::HandleBotOutgoingPacket(WorldPacket const& packet)
                     sCharacterCache->GetCharacterNameByGuid(guid1, name);
                     uint32 accountId = sCharacterCache->GetCharacterAccountIdByGuid(guid1);
                     isFromFreeBot = sPlayerbotAIConfig.IsInRandomAccountList(accountId);
-                    bool isMentioned = message.find(bot->GetName()) != std::string::npos;
+                    bool isAddressed = (msgtype == CHAT_MSG_WHISPER) || IsBotMentioned(bot, message);
 
                     // ChatChannelSource chatChannelSource = GetChatChannelSource(bot, msgtype, chanName);
 
-                    // random bot speaks, chat CD
-                    if (isFromFreeBot && isPaused)
+                    // random bot speaks, chat CD (addressed bots may still answer)
+                    if (isFromFreeBot && isPaused && !isAddressed)
                         return;
 
-                    // BG: react only if mentioned or if not channel and real player spoke
-                    if (bot->InBattleground() && !(isMentioned || (msgtype != CHAT_MSG_CHANNEL && !isFromFreeBot)))
+                    // BG: react only if addressed or if not channel and real player spoke
+                    if (bot->InBattleground() && !(isAddressed || (msgtype != CHAT_MSG_CHANNEL && !isFromFreeBot)))
                         return;
 
                     if (HasGameClientMaster() && guid1 != GetMaster()->GetGUID())
@@ -1257,24 +1259,32 @@ void PlayerbotAI::HandleBotOutgoingPacket(WorldPacket const& packet)
                         if (urand(0, 60) > 0 || urand(1, 100) > sPlayerbotAIConfig.thunderfuryRepliesChance)
                             return;
                     }
-                    else
+                    else if (!isAddressed)
                     {
-                        if (isFromFreeBot && urand(0, 20))
+                        // explicit requests always get queued, everything else only by chance
+                        bool const conversationRequest =
+                            sPlayerbotAIConfig.conversationActions &&
+                            ChatReplyAction::ClassifyConversationRequest(message) != 0;
+                        if (!conversationRequest)
+                        {
+                            if (isFromFreeBot)
+                            {
+                                if (urand(0, 20))
+                                    return;
+                            }
+                            else if (!sPlayerbotAIConfig.chatReplyChance ||
+                                     urand(1, 100) > sPlayerbotAIConfig.chatReplyChance)
+                            {
+                                return;
+                            }
+                        }
+
+                        // only one bot answers the same conversation within hearing distance
+                        if (sPlayerbotAIConfig.chatReplySingleSpeaker &&
+                            !ChatConversationCoordinator::instance().TryClaim(
+                                ChatConversationCoordinator::MakeKey(guid1.GetCounter(), msgtype, message),
+                                bot->GetGUID().GetCounter()))
                             return;
-
-                        // if (msgtype == CHAT_MSG_GUILD && (!sPlayerbotAIConfig.guildRepliesRate || urand(1, 100) >=
-                        // sPlayerbotAIConfig.guildRepliesRate)) return;
-
-                        if (!isFromFreeBot)
-                        {
-                            if (!isMentioned && urand(0, 4))
-                                return;
-                        }
-                        else
-                        {
-                            if (urand(0, 20 + 10 * isMentioned))
-                                return;
-                        }
                     }
 
                     QueueChatResponse(ChatQueuedReply{msgtype, guid1.GetCounter(), guid2.GetCounter(), message,
@@ -6061,6 +6071,34 @@ bool PlayerbotAI::IsInRealGuild()
 }
 
 void PlayerbotAI::QueueChatResponse(const ChatQueuedReply chatReply) { chatReplies.push_back(std::move(chatReply)); }
+
+bool PlayerbotAI::IsBotMentioned(Player* bot, std::string const& message)
+{
+    if (!bot || message.empty())
+        return false;
+
+    std::string target;
+    for (char raw : bot->GetName())
+        target += static_cast<char>(std::tolower(static_cast<unsigned char>(raw)));
+
+    std::string token;
+    for (char raw : message)
+    {
+        unsigned char ch = static_cast<unsigned char>(raw);
+        if (std::isalnum(ch))
+        {
+            token += static_cast<char>(std::tolower(ch));
+        }
+        else if (!token.empty())
+        {
+            if (token == target)
+                return true;
+            token.clear();
+        }
+    }
+
+    return !token.empty() && token == target;
+}
 
 bool PlayerbotAI::EqualLowercaseName(std::string s1, std::string s2)
 {

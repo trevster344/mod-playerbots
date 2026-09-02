@@ -26,6 +26,18 @@ private:
     static std::map<std::string, uint32> probabilityTable;
 };
 
+namespace ConversationRequestFlags
+{
+    enum : uint32
+    {
+        NONE = 0,
+        INVITE = 1 << 0,
+        BUFF = 1 << 1,
+        FOOD = 1 << 2,
+        WATER = 1 << 3
+    };
+}
+
 class ChatReplyAction : public Action
 {
 public:
@@ -34,6 +46,9 @@ public:
     bool isUseful() { return true; }
 
     static void ChatReplyDo(Player* bot, uint32& type, uint32& guid1, std::string& msg, std::string& chanName, std::string& name);
+    static uint32 ClassifyConversationRequest(std::string const& message);
+    static bool HandleConversationAction(Player* bot, uint32 flags, std::string& msg, uint32& type, uint32& guid1,
+                                         std::string& name, ChatChannelSource chatChannelSource);
     static bool HandleThunderfuryReply(Player* bot, ChatChannelSource chatChannelSource);
     static bool HandleToxicLinksReply(Player* bot, ChatChannelSource chatChannelSource);
     static bool HandleWTBItemsReply(Player* bot, ChatChannelSource chatChannelSource, std::string& msg, std::string& name);
