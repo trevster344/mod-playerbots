@@ -187,6 +187,9 @@ public:
     bool enableBroadcasts;
     bool enableGreet;
     bool randomBotSayWithoutMaster;
+    uint32 chatReplyChance;
+    bool chatReplySingleSpeaker;
+    bool conversationActions;
 
     uint32 broadcastChanceMaxValue;
 

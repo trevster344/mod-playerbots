@@ -119,6 +119,15 @@ std::string PlayerbotTextMgr::GetBotTextOrDefault(std::string name, std::string 
     return botText;
 }
 
+bool PlayerbotTextMgr::HasText(std::string const& name) const
+{
+    if (name.empty())
+        return false;
+
+    auto it = botTexts.find(name);
+    return it != botTexts.end() && !it->second.empty();
+}
+
 // chat replies
 
 std::string PlayerbotTextMgr::GetBotText(ChatReplyType replyType, std::map<std::string, std::string> placeholders)
