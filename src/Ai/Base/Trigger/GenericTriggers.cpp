@@ -634,6 +634,80 @@ bool NotDpsAoeTargetActiveTrigger::IsActive()
 
 bool IsSwimmingTrigger::IsActive() { return AI_VALUE2(bool, "swimming", "self target"); }
 
+bool LowAirTrigger::IsActive()
+{
+    if (!sPlayerbotAIConfig.avoidDrowning || !bot || !bot->IsAlive())
+    {
+        underwaterSince = 0;
+        refillUntil = 0;
+        lowAirReached = false;
+        return false;
+    }
+
+    // Breath is disabled for water-breathing auras and GMs (mirror of Player::getMaxTimer(BREATH_TIMER),
+    // which is protected; replicate it through the public API instead).
+    if (bot->HasWaterBreathingAura() ||
+        bot->GetSession()->GetSecurity() >= AccountTypes(sWorld->getIntConfig(CONFIG_DISABLE_BREATHING)))
+    {
+        underwaterSince = 0;
+        refillUntil = 0;
+        lowAirReached = false;
+        return false;
+    }
+
+    int32 maxBreath = sWorld->getIntConfig(CONFIG_WATER_BREATH_TIMER);
+    maxBreath *= bot->GetTotalAuraMultiplier(SPELL_AURA_MOD_WATER_BREATHING);
+
+    const bool underwater = bot->GetLiquidData().Status == LIQUID_MAP_UNDER_WATER;
+    const uint32 now = getMSTime();
+
+    if (underwater)
+    {
+        if (!underwaterSince)
+            underwaterSince = now;
+
+        const uint32 lowAirMs = maxBreath * sPlayerbotAIConfig.surfaceAirThreshold;
+        if (now - underwaterSince >= lowAirMs)
+            lowAirReached = true;
+
+        if (lowAirReached && !wasActive)
+        {
+            LOG_INFO("playerbots", "[Surface] {} air low after ~{}s underwater, surfacing", bot->GetName(),
+                     uint32((now - underwaterSince) / 1000));
+            wasActive = true;
+        }
+
+        return lowAirReached;
+    }
+
+    // Out of water: if the bot surfaced after running low on air, keep the
+    // trigger active while it refills (breath regen is 10x the drain rate).
+    if (underwaterSince && lowAirReached && !refillUntil)
+        refillUntil = now + maxBreath / 10;
+
+    underwaterSince = 0;
+
+    if (refillUntil)
+    {
+        if (now >= refillUntil)
+        {
+            refillUntil = 0;
+            lowAirReached = false;
+            if (wasActive)
+            {
+                LOG_INFO("playerbots", "[Surface] {} air refilled, resuming", bot->GetName());
+                wasActive = false;
+            }
+            return false;
+        }
+
+        return true;
+    }
+
+    lowAirReached = false;
+    return false;
+}
+
 bool HasNearestAddsTrigger::IsActive()
 {
     GuidVector targets = AI_VALUE(GuidVector, "nearest adds");
