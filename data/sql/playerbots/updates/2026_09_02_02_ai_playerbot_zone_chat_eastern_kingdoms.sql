@@ -110,7 +110,7 @@ INSERT INTO ai_playerbot_texts (name, text, say_type, reply_type, text_loc1, tex
 ('zonechat_swamp_of_sorrows', 'LFG any group here, this place is miserable alone', 0, 0, '', '', '', '', '', '', '', ''),
 ('zonechat_swamp_of_sorrows', 'i think the whole zone is one giant puddle', 0, 0, '', '', '', '', '', '', '', ''),
 ('zonechat_the_hinterlands', 'The Hinterlands is a nice forest if you ignore the trolls', 0, 0, '', '', '', '', '', '', '', ''),
-('zonechat_the_hinterlands', 'Chuck Norris once out-troll'd the trolls in the Hinterlands', 0, 0, '', '', '', '', '', '', '', ''),
+('zonechat_the_hinterlands', 'Chuck Norris once out-troll''d the trolls in the Hinterlands', 0, 0, '', '', '', '', '', '', '', ''),
 ('zonechat_the_hinterlands', 'anyone doing the Hinterlands quests? the gryphons are everywhere', 0, 0, '', '', '', '', '', '', '', ''),
 ('zonechat_the_hinterlands', 'LFG group for the troll dungeons around here', 0, 0, '', '', '', '', '', '', '', ''),
 ('zonechat_the_hinterlands', 'the view from the cliffs here is worth the climb', 0, 0, '', '', '', '', '', '', '', ''),
