@@ -442,31 +442,60 @@ void PlayerbotAI::UpdateAIGroupMaster()
     if (master)
         masterBotAI = GET_PLAYERBOT_AI(master);
 
+    Player* newMaster = nullptr;
+
     if (!master || (masterBotAI && !IsSelfBot(master)))
     {
-        Player* newMaster = FindNewMaster();
-        if (newMaster)
+        newMaster = FindNewMaster();
+    }
+    // Random bots follow the group leader. When the group leader ("guide")
+    // changes - typically an LFG dungeon group where the old real-player master
+    // passed the lead or left while the group persisted - retarget to the
+    // current best master instead of keeping the stale pointer. Account-bound
+    // (alt/addclass) bots always keep their owner.
+    else if (sRandomPlayerbotMgr.IsRandomBot(bot) && !bot->InBattleground() && group)
+    {
+        // The real-player master left the bot's group but the group still
+        // exists: drop the stale pointer and adopt the new leader again.
+        if (master->GetGroup() != group)
         {
-            master = newMaster;
-            botAI->SetMaster(newMaster);
-            botAI->ResetStrategies();
-
-            if (!bot->InBattleground())
+            SetMaster(nullptr);
+            newMaster = FindNewMaster();
+        }
+        // The master is still grouped but is no longer the leader: follow the
+        // new leader (a real player or selfbot) instead.
+        else if (!masterBotAI)
+        {
+            if (Player* leader = GetGroupLeader())
             {
-                botAI->ChangeStrategy("+follow", BOT_STATE_NON_COMBAT);
-
-                if (botAI->GetMaster() == botAI->GetGroupLeader())
-                    botAI->TellMaster(PlayerbotTextMgr::instance().GetBotTextOrDefault(
-                        "hello_follow", "Hello, I follow you!", {}));
-                else
-                    botAI->TellMaster(PlayerbotTextMgr::instance().GetBotTextOrDefault(
-                        "hello", "Hello!", {}));
+                PlayerbotAI* leaderBotAI = GET_PLAYERBOT_AI(leader);
+                if ((!leaderBotAI || IsSelfBot(leader)) && leader != master)
+                    newMaster = FindNewMaster();
             }
+        }
+    }
+
+    if (newMaster)
+    {
+        master = newMaster;
+        botAI->SetMaster(newMaster);
+        botAI->ResetStrategies();
+
+        if (!bot->InBattleground())
+        {
+            botAI->ChangeStrategy("+follow", BOT_STATE_NON_COMBAT);
+
+            if (botAI->GetMaster() == botAI->GetGroupLeader())
+                botAI->TellMaster(PlayerbotTextMgr::instance().GetBotTextOrDefault(
+                    "hello_follow", "Hello, I follow you!", {}));
             else
-            {
-                // we're in a battleground, stay with the pack and focus on objective
-                botAI->ChangeStrategy("-follow", BOT_STATE_NON_COMBAT);
-            }
+                botAI->TellMaster(PlayerbotTextMgr::instance().GetBotTextOrDefault(
+                    "hello", "Hello!", {}));
+        }
+        else
+        {
+            // we're in a battleground, stay with the pack and focus on objective
+            botAI->ChangeStrategy("-follow", BOT_STATE_NON_COMBAT);
         }
     }
 }
