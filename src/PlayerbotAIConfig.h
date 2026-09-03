@@ -191,6 +191,11 @@ public:
     bool chatReplySingleSpeaker;
     bool conversationActions;
 
+    bool zoneChat;
+    uint32 zoneChatMinInterval;
+    uint32 zoneChatMaxInterval;
+    uint32 zoneChatMinGapSeconds;
+
     uint32 broadcastChanceMaxValue;
 
     uint32 broadcastToGuildGlobalChance;
