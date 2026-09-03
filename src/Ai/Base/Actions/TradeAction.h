@@ -10,6 +10,7 @@
 #include "InventoryAction.h"
 
 class Item;
+class Player;
 class PlayerbotAI;
 
 class TradeAction : public InventoryAction
@@ -18,6 +19,7 @@ public:
     TradeAction(PlayerbotAI* botAI) : InventoryAction(botAI, "trade") {}
 
     bool Execute(Event event) override;
+    bool TradeWith(Player* player, std::string const& text);
 
 private:
     bool TradeItem(Item const* item, int8 slot);

@@ -6,11 +6,19 @@
 
 #include "SayAction.h"
 #include "AiFactory.h"
+#include "CastCustomSpellAction.h"
+#include "ChatConversationCoordinator.h"
 #include "Event.h"
+#include "InviteToGroupAction.h"
 #include "PlayerbotTextMgr.h"
 #include "Playerbots.h"
-#include <regex>
+#include "ServerFacade.h"
+#include "SharedDefines.h"
+#include "TradeAction.h"
+#include <cctype>
+#include <iterator>
 #include <string>
+#include <vector>
 
 static const std::unordered_set<std::string> noReplyMsgs = {
     "join",
@@ -212,6 +220,27 @@ void ChatReplyAction::ChatReplyDo(Player* bot, uint32& type, uint32& guid1, std:
     if (GET_PLAYERBOT_AI(bot)->GetChatHelper()->ExtractAllItemIds(msg).count(19019))
     {
         HandleThunderfuryReply(bot, chatChannelSource);
+        return;
+    }
+
+    // Functional requests: invite, buff, conjured food/water for the real player who asked.
+    // Restricted to say/yell so we don't double-act on whisper/party messages, which are already
+    // routed through the bot's chat-command pipeline (invite, buff list, trade, ...).
+    if (sPlayerbotAIConfig.conversationActions && (type == CHAT_MSG_SAY || type == CHAT_MSG_YELL))
+    {
+        uint32 const requestFlags = ChatReplyAction::ClassifyConversationRequest(msg);
+        if (requestFlags && ChatReplyAction::HandleConversationAction(bot, requestFlags, msg, type, guid1, name,
+                                                                      chatChannelSource))
+            return;
+    }
+
+    // Only the claimed speaker answers an unaddressed conversation (say/yell/party/raid...).
+    // Whisper and whole-name mentions are exempt: they target one bot directly.
+    if (sPlayerbotAIConfig.chatReplySingleSpeaker && type != CHAT_MSG_WHISPER &&
+        !PlayerbotAI::IsBotMentioned(bot, msg) &&
+        !ChatConversationCoordinator::instance().IsSpeaker(
+            ChatConversationCoordinator::MakeKey(guid1, type, msg), bot->GetGUID().GetCounter()))
+    {
         return;
     }
 
@@ -562,6 +591,16 @@ bool ChatReplyAction::SendGeneralResponse(Player* bot, ChatChannelSource chatCha
             GET_PLAYERBOT_AI(bot)->SayToGuild(responseMessage);
             break;
         }
+        case ChatChannelSource::SRC_PARTY:
+        {
+            GET_PLAYERBOT_AI(bot)->SayToParty(responseMessage);
+            break;
+        }
+        case ChatChannelSource::SRC_RAID:
+        {
+            GET_PLAYERBOT_AI(bot)->SayToRaid(responseMessage);
+            break;
+        }
         default:
             break;
     }
@@ -570,480 +609,463 @@ bool ChatReplyAction::SendGeneralResponse(Player* bot, ChatChannelSource chatCha
     return true;
 }
 
+namespace
+{
+    std::string DialogToLower(std::string text)
+    {
+        for (char& ch : text)
+            ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+        return text;
+    }
+
+    std::vector<std::string> DialogWords(std::string const& text)
+    {
+        std::vector<std::string> words;
+        std::string word;
+        for (char raw : text)
+        {
+            unsigned char ch = static_cast<unsigned char>(raw);
+            if (std::isalnum(ch))
+                word += static_cast<char>(std::tolower(ch));
+            else if (!word.empty())
+            {
+                words.push_back(word);
+                word.clear();
+            }
+        }
+
+        if (!word.empty())
+            words.push_back(word);
+
+        return words;
+    }
+
+    bool HasAnyWord(std::string const& text, std::initializer_list<std::string> const& wanted)
+    {
+        std::vector<std::string> const words = DialogWords(text);
+        for (std::string const& word : words)
+        {
+            for (std::string const& want : wanted)
+            {
+                if (word == want)
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    bool HasPhrase(std::string const& text, std::initializer_list<std::string> const& phrases)
+    {
+        for (std::string const& phrase : phrases)
+        {
+            if (text.find(phrase) != std::string::npos)
+                return true;
+        }
+
+        return false;
+    }
+
+    std::string RandomLine(std::initializer_list<std::string> const& lines)
+    {
+        auto it = lines.begin();
+        std::advance(it, urand(0, lines.size() - 1));
+        return *it;
+    }
+
+    std::string GetDialogText(std::string const& textName,
+                              std::map<std::string, std::string> const& placeholders,
+                              std::initializer_list<std::string> const& fallbacks)
+    {
+        std::string text;
+        if (PlayerbotTextMgr::instance().HasText(textName))
+            text = PlayerbotTextMgr::instance().GetBotText(textName, placeholders);
+
+        if (text.empty())
+        {
+            text = RandomLine(fallbacks);
+            for (auto const& placeholder : placeholders)
+                PlayerbotTextMgr::replaceAll(text, placeholder.first, placeholder.second);
+        }
+
+        return text;
+    }
+
+    std::map<std::string, std::string> BuildDialogPlaceholders(Player* bot, std::string const& speakerName)
+    {
+        std::map<std::string, std::string> placeholders;
+        PlayerbotAI* botAI = GET_PLAYERBOT_AI(bot);
+        placeholders["%s"] = speakerName;
+        placeholders["%other"] = speakerName;
+        placeholders["%name"] = bot->GetName();
+        placeholders["%class"] = botAI->GetChatHelper()->FormatClass(bot->getClass());
+        placeholders["%race"] = botAI->GetChatHelper()->FormatRace(bot->getRace());
+        placeholders["%level"] = std::to_string(bot->GetLevel());
+        placeholders["%role"] = ChatHelper::FormatClass(bot, AiFactory::GetPlayerSpecTab(bot));
+        AreaTableEntry const* zone = botAI->GetCurrentZone();
+        placeholders["%zone"] = zone ? PlayerbotAI::GetLocalizedAreaName(zone) : "this zone";
+        return placeholders;
+    }
+}
+
 std::string ChatReplyAction::GenerateReplyMessage(Player* bot, std::string& incomingMessage, uint32& guid1, std::string& name)
 {
-    ChatReplyType replyType = REPLY_NOT_UNDERSTAND; // default not understand
+    std::map<std::string, std::string> const placeholders = BuildDialogPlaceholders(bot, name);
+    std::string const lower = DialogToLower(incomingMessage);
+    bool const isQuestion = lower.find('?') != std::string::npos;
 
-    std::string respondsText = "";
-
-    // Chat Logic
-    int32 verb_pos = -1;
-    int32 verb_type = -1;
-    int32 is_quest = 0;
-    bool found = false;
-    std::stringstream text(incomingMessage);
-    std::string segment;
-    std::vector<std::string> word;
-    while (std::getline(text, segment, ' '))
+    if (Player* plr = ObjectAccessor::FindPlayer(ObjectGuid(HighGuid::Player, guid1)))
     {
-        word.push_back(segment);
-    }
-
-    for (uint32 i = 0; i < 15; i++)
-    {
-        if (word.size() < i)
-            word.push_back("");
-    }
-
-    if (incomingMessage.find("?") != std::string::npos)
-        is_quest = 1;
-    if (word[0].find("what") != std::string::npos)
-        is_quest = 2;
-    else if (word[0].find("who") != std::string::npos)
-        is_quest = 3;
-    else if (word[0] == "when")
-        is_quest = 4;
-    else if (word[0] == "where")
-        is_quest = 5;
-    else if (word[0] == "why")
-        is_quest = 6;
-
-    // Responds
-    for (uint32 i = 0; i < 8; i++)
-    {
-        // blame gm with chat tag
-        if (Player* plr = ObjectAccessor::FindPlayer(ObjectGuid(HighGuid::Player, guid1)))
+        if (plr->isGMChat())
         {
-            if (plr->isGMChat())
-            {
-                replyType = REPLY_ADMIN_ABUSE;
-                found = true;
+            return GetDialogText("dialog_admin", placeholders,
+                                 {"yes, %s", "of course, %s", "as you wish, %s", "right away, %s"});
+        }
+    }
+
+    if (HasAnyWord(lower, {"hi", "hello", "hey", "hiya", "yo", "sup", "hail", "howdy", "greetings", "wazzup",
+                           "wassup", "morning", "afternoon", "evening"}))
+    {
+        return GetDialogText("dialog_greeting", placeholders,
+                             {"hello %s", "hey there %s", "hi %s, good to see you", "greetings, %s",
+                              "hello! hows it going %s", "hi %s, what brings you around", "well hello there %s",
+                              "hey %s, fancy meeting you here"});
+    }
+
+    if (HasPhrase(lower, {"how are you", "how r u", "how you doing", "how are you doing", "whats up",
+                          "what's up", "hows it going", "how is it going"}))
+    {
+        return GetDialogText("dialog_howareyou", placeholders,
+                             {"im doing well %s, and you?", "cant complain %s, how about you?", "pretty good, you?",
+                              "hanging in there %s", "all the better for seeing you %s", "better now that you asked %s"});
+    }
+
+    if (HasAnyWord(lower, {"thanks", "thank", "thx", "ty", "tyvm", "thnx"}) || HasPhrase(lower, {"thank you"}))
+    {
+        return GetDialogText("dialog_thanks", placeholders,
+                             {"anytime %s", "youre welcome %s", "no problem at all %s", "happy to help %s",
+                              "dont mention it %s", "it was nothing %s"});
+    }
+
+    if (HasAnyWord(lower, {"bye", "cya", "goodbye", "goodnight", "farewell", "later", "laters", "gn", "peace"}) ||
+        HasPhrase(lower, {"good night", "see you", "see ya", "gotta go"}))
+    {
+        return GetDialogText("dialog_farewell", placeholders,
+                             {"take care %s", "see you around %s", "bye %s, stay safe", "until next time %s",
+                              "farewell %s", "dont be a stranger %s", "good luck out there %s"});
+    }
+
+    if (HasPhrase(lower, {"where are you"}))
+    {
+        return GetDialogText("dialog_where", placeholders,
+                             {"im in %zone right now", "around %zone %s", "somewhere in %zone, you?", "im at %zone, want to group up?"});
+    }
+
+    if (HasPhrase(lower, {"what class", "which class"}))
+    {
+        return GetDialogText("dialog_class", placeholders,
+                             {"im a %class %s", "a %class, why do you ask?", "im a proud %class", "i play a %class"});
+    }
+
+    if (HasPhrase(lower, {"what level", "which level", "your level"}))
+    {
+        return GetDialogText("dialog_level", placeholders,
+                             {"level %level %s", "im level %level now", "%level, almost there",
+                              "level %level, what about you %s?"});
+    }
+
+    if (HasPhrase(lower, {"what race", "which race"}))
+    {
+        return GetDialogText("dialog_race", placeholders,
+                             {"im a %race %s", "a %race, born and raised", "%race through and through",
+                              "im %race, and proud of it"});
+    }
+
+    bool const insulted = HasAnyWord(lower, {"noob", "idiot", "stupid", "loser", "dumb", "dummy", "moron", "shut",
+                                             "trash", "suck", "lame"}) ||
+                          HasPhrase(lower, {"shut up", "be quiet", "you suck"});
+
+    if (insulted && PlayerbotAI::IsBotMentioned(bot, incomingMessage))
+    {
+        return GetDialogText("dialog_grudge", placeholders,
+                             {"thats not very nice %s", "rude %s, very rude", "i try my best %s",
+                              "excuse me? %s", "no need for that %s", "i will pretend i didnt hear that %s"});
+    }
+
+    if (isQuestion)
+    {
+        return GetDialogText("dialog_question", placeholders,
+                             {"hmm, hard to say %s", "i dont really know %s", "good question %s",
+                              "beats me %s", "who can say %s", "not sure about that one %s",
+                              "you tell me %s", "maybe ask someone smarter than me %s"});
+    }
+
+    if (PlayerbotAI::IsBotMentioned(bot, incomingMessage))
+    {
+        return GetDialogText("dialog_callout", placeholders,
+                             {"yes %s?", "did you call me %s?", "im listening %s", "what do you need %s?",
+                              "you wanted me %s?", "right here %s"});
+    }
+
+    return GetDialogText("dialog_chatter", placeholders,
+                         {"i see %s", "interesting %s", "yeah %s", "tell me more %s", "oh really %s",
+                          "right %s", "i know what you mean %s", "fair enough %s", "sure %s"});
+}
+
+namespace
+{
+    bool IsNear(Player* bot, Player* target)
+    {
+        return target && bot && target->GetMapId() == bot->GetMapId() &&
+               ServerFacade::instance().GetDistance2d(bot, target) <= sPlayerbotAIConfig.sightDistance;
+    }
+
+    std::string BuffAliasMatch(std::string const& lower)
+    {
+        static const std::vector<std::pair<std::string, std::string>> aliases = {
+            {"arcane intellect", "arcane intellect"}, {"blessing of might", "blessing of might"},
+            {"blessing of wisdom", "blessing of wisdom"}, {"blessing of kings", "blessing of kings"},
+            {"power word: fortitude", "power word: fortitude"}, {"mark of the wild", "mark of the wild"},
+            {"battle shout", "battle shout"}, {"commanding shout", "commanding shout"},
+            {"horn of winter", "horn of winter"}, {"intellect", "arcane intellect"},
+            {"might", "blessing of might"}, {"wisdom", "blessing of wisdom"}, {"kings", "blessing of kings"},
+            {"fortitude", "power word: fortitude"}, {"mark", "mark of the wild"}, {"thorns", "thorns"}};
+
+        for (auto const& alias : aliases)
+        {
+            if (lower.find(alias.first) != std::string::npos)
+                return alias.second;
+        }
+
+        return "";
+    }
+
+    std::vector<std::string> BestBuffCandidates(Player* bot, Player* target)
+    {
+        std::vector<std::string> result;
+        if (!target)
+            return result;
+
+        uint8 const cls = target->getClass();
+        bool const caster = cls == CLASS_MAGE || cls == CLASS_PRIEST || cls == CLASS_WARLOCK;
+        bool const melee = cls == CLASS_WARRIOR || cls == CLASS_PALADIN || cls == CLASS_ROGUE ||
+                           cls == CLASS_HUNTER || cls == CLASS_DEATH_KNIGHT;
+
+        switch (bot->getClass())
+        {
+            case CLASS_PRIEST:
+                result.push_back("power word: fortitude");
                 break;
-            }
-        }
-
-        if (word[i] == "hi" || word[i] == "hey" || word[i] == "hello" || word[i] == "wazzup")
-        {
-            replyType = REPLY_HELLO;
-            found = true;
-            break;
-        }
-
-        if (verb_type < 4)
-        {
-            if (word[i] == "am" || word[i] == "are" || word[i] == "is")
-            {
-                verb_pos = i;
-                verb_type = 2;  // present
-                if (verb_pos == 0)
-                    is_quest = 1;
-            }
-            else if (word[i] == "will")
-            {
-                verb_pos = i;
-                verb_type = 3;  // future
-            }
-            else if (word[i] == "was" || word[i] == "were")
-            {
-                verb_pos = i;
-                verb_type = 1;  // past
-            }
-            else if (word[i] == "shut" || word[i] == "noob")
-            {
-                if (incomingMessage.find(bot->GetName()) == std::string::npos)
+            case CLASS_MAGE:
+                if (caster)
+                    result.push_back("arcane intellect");
+                break;
+            case CLASS_DRUID:
+                result.push_back("mark of the wild");
+                if (melee)
+                    result.push_back("thorns");
+                break;
+            case CLASS_PALADIN:
+                if (melee)
                 {
-                    continue;  // not react
-                    uint32 rnd = urand(0, 2);
-                    std::string msg = "";
-                    if (rnd == 0)
-                        msg = "sorry %s, ill shut up now";
-                    if (rnd == 1)
-                        msg = "ok ok %s";
-                    if (rnd == 2)
-                        msg = "fine, i wont talk to you anymore %s";
-
-                    msg = std::regex_replace(msg, std::regex("%s"), name);
-                    respondsText = msg;
-                    found = true;
-                    break;
+                    result.push_back("blessing of might");
+                    result.push_back("blessing of kings");
+                }
+                else if (caster)
+                {
+                    result.push_back("blessing of wisdom");
+                    result.push_back("blessing of kings");
                 }
                 else
                 {
-                    replyType = REPLY_GRUDGE;
-                    found = true;
-                    break;
+                    result.push_back("blessing of kings");
+                    result.push_back("blessing of might");
+                    result.push_back("blessing of wisdom");
                 }
-            }
+                break;
+            default:
+                break;
         }
+
+        return result;
     }
-    if (verb_type < 4 && is_quest && !found)
+
+    bool CastBuffOnPlayer(PlayerbotAI* botAI, Player* target, std::string const& spellName)
     {
-        switch (is_quest)
-        {
-        case 2:
-        {
-            uint32 rnd = urand(0, 3);
-            std::string msg = "";
+        CastCustomSpellAction action(botAI);
+        return action.Execute(Event("cast custom spell", spellName + " on " + target->GetName()));
+    }
 
-            switch (rnd)
-            {
-            case 0:
-                msg = "i dont know what";
-                break;
-            case 1:
-                msg = "i dont know %s";
-                break;
-            case 2:
-                msg = "who cares";
-                break;
-            case 3:
-                msg = "afraid that was before i was around or paying attention";
-                break;
-            }
+    bool ConjureAndTradeTo(PlayerbotAI* botAI, Player* target, std::string const& conjureSpell,
+                           std::string const& itemName)
+    {
+        if (!botAI->HasSpell(conjureSpell))
+            return false;
 
-            msg = std::regex_replace(msg, std::regex("%s"), name);
-            respondsText = msg;
-            found = true;
-            break;
+        if (!botAI->CastSpell(conjureSpell, botAI->GetBot()))
+            return false;
+
+        TradeAction trade(botAI);
+        return trade.TradeWith(target, itemName);
+    }
+
+    bool SendConversationAck(Player* bot, ChatChannelSource chatChannelSource, std::string const& ackName,
+                             std::string const& name, std::initializer_list<std::string> const& fallbacks,
+                             std::map<std::string, std::string> const& extra = {})
+    {
+        std::map<std::string, std::string> placeholders = BuildDialogPlaceholders(bot, name);
+        for (auto const& placeholder : extra)
+            placeholders[placeholder.first] = placeholder.second;
+
+        std::string ack = GetDialogText(ackName, placeholders, fallbacks);
+        if (ack.empty())
+            return false;
+
+        std::string receiver = name;
+        return ChatReplyAction::SendGeneralResponse(bot, chatChannelSource, ack, receiver);
+    }
+}
+
+uint32 ChatReplyAction::ClassifyConversationRequest(std::string const& message)
+{
+    std::string const lower = DialogToLower(message);
+    uint32 flags = ConversationRequestFlags::NONE;
+
+    if (HasPhrase(lower, {"invite me", "invite please", "invite us", "add me to your group", "add me to your party",
+                          "add me to your raid", "can you invite", "could you invite", "let me join your group",
+                          "let me join your party"}))
+    {
+        flags |= ConversationRequestFlags::INVITE;
+    }
+
+    if (HasPhrase(lower, {"buff me", "buff please", "buff me please", "give me a buff", "give me buff",
+                          "need a buff", "want a buff", "any buffs", "buffs please"}) ||
+        (HasPhrase(lower, {"give me", "need", "want", "cast", "could you", "can you", "please"}) &&
+         HasPhrase(lower, {"buff", "might", "wisdom", "kings", "fortitude", "intellect", "arcane intellect",
+                           "mark of the wild", "thorns", "blessing of might", "blessing of wisdom",
+                           "blessing of kings", "power word: fortitude", "battle shout", "commanding shout",
+                           "horn of winter"})))
+    {
+        flags |= ConversationRequestFlags::BUFF;
+    }
+
+    if (HasPhrase(lower, {"food please", "give me food", "give us food", "need food", "some food", "want food",
+                          "conjure food", "conjured food", "any food", "food me"}))
+    {
+        flags |= ConversationRequestFlags::FOOD;
+    }
+
+    if (HasPhrase(lower, {"water please", "give me water", "give us water", "need water", "some water",
+                          "want water", "conjure water", "conjured water", "any water", "give me a drink",
+                          "a drink", "drink please"}))
+    {
+        flags |= ConversationRequestFlags::WATER;
+    }
+
+    return flags;
+}
+
+bool ChatReplyAction::HandleConversationAction(Player* bot, uint32 flags, std::string& msg, uint32& /*type*/,
+                                               uint32& guid1, std::string& name, ChatChannelSource chatChannelSource)
+{
+    Player* requester = ObjectAccessor::FindPlayer(ObjectGuid(HighGuid::Player, guid1));
+    if (!requester || requester == bot || !IsRealPlayer(requester))
+        return false;
+
+    PlayerbotAI* botAI = GET_PLAYERBOT_AI(bot);
+    if (!botAI)
+        return false;
+
+    if (flags & ConversationRequestFlags::INVITE)
+    {
+        if (!IsNear(bot, requester))
+        {
+            SendConversationAck(bot, chatChannelSource, "dialog_too_far", name,
+                                {"come a bit closer %s", "i cant reach you from here %s", "youre too far away %s"});
+            return true;
         }
-        case 3:
+
+        if (!bot->IsInCombat())
         {
-            uint32 rnd = urand(0, 4);
-            std::string msg = "";
-
-            switch (rnd)
-            {
-            case 0:
-                msg = "nobody";
-                break;
-            case 1:
-                msg = "we all do";
-                break;
-            case 2:
-                msg = "perhaps its you, %s";
-                break;
-            case 3:
-                msg = "dunno %s";
-                break;
-            case 4:
-                msg = "is it me?";
-                break;
-            }
-
-            msg = std::regex_replace(msg, std::regex("%s"), name);
-            respondsText = msg;
-            found = true;
-            break;
+            InviteToGroupAction action(botAI);
+            Event event("invite", "", requester);
+            action.Execute(event);
         }
-        case 4:
+
+        SendConversationAck(bot, chatChannelSource, "dialog_invite_ok", name,
+                            {"welcome to the group %s", "sending you an invite %s", "sure, check your invite %s"});
+        return true;
+    }
+
+    if (flags & ConversationRequestFlags::BUFF)
+    {
+        if (bot->IsInCombat() || !IsNear(bot, requester))
         {
-            uint32 rnd = urand(0, 6);
-            std::string msg = "";
-
-            switch (rnd)
-            {
-            case 0:
-                msg = "soon perhaps %s";
-                break;
-            case 1:
-                msg = "probably later";
-                break;
-            case 2:
-                msg = "never";
-                break;
-            case 3:
-                msg = "what do i look like, a psychic?";
-                break;
-            case 4:
-                msg = "a few minutes, maybe an hour ... years?";
-                break;
-            case 5:
-                msg = "when? good question %s";
-                break;
-            case 6:
-                msg = "dunno %s";
-                break;
-            }
-
-            msg = std::regex_replace(msg, std::regex("%s"), name);
-            respondsText = msg;
-            found = true;
-            break;
+            SendConversationAck(bot, chatChannelSource, "dialog_cannot_buff", name,
+                                {"not right now %s", "i cant do that at the moment %s", "a bit busy %s"});
+            return true;
         }
-        case 5:
+
+        std::string spellName = BuffAliasMatch(DialogToLower(msg));
+        if (spellName.empty() || !botAI->HasSpell(spellName))
         {
-            uint32 rnd = urand(0, 6);
-            std::string msg = "";
-
-            switch (rnd)
+            spellName.clear();
+            for (std::string const& candidate : BestBuffCandidates(bot, requester))
             {
-            case 0:
-                msg = "really want me to answer that?";
-                break;
-            case 1:
-                msg = "on the map?";
-                break;
-            case 2:
-                msg = "who cares";
-                break;
-            case 3:
-                msg = "afk?";
-                break;
-            case 4:
-                msg = "none of your buisiness where";
-                break;
-            case 5:
-                msg = "yeah, where?";
-                break;
-            case 6:
-                msg = "dunno %s";
-                break;
-            }
-
-            msg = std::regex_replace(msg, std::regex("%s"), name);
-            respondsText = msg;
-            found = true;
-            break;
-        }
-        case 6:
-        {
-            uint32 rnd = urand(0, 6);
-            std::string msg = "";
-
-            switch (rnd)
-            {
-            case 0:
-                msg = "dunno %s";
-                break;
-            case 1:
-                msg = "why? just because %s";
-                break;
-            case 2:
-                msg = "why is the sky blue?";
-                break;
-            case 3:
-                msg = "dont ask me %s, im just a bot";
-                break;
-            case 4:
-                msg = "your asking the wrong person";
-                break;
-            case 5:
-                msg = "who knows?";
-                break;
-            case 6:
-                msg = "dunno %s";
-                break;
-            }
-            msg = std::regex_replace(msg, std::regex("%s"), name);
-            respondsText = msg;
-            found = true;
-            break;
-        }
-        default:
-        {
-            switch (verb_type)
-            {
-            case 1:
-            {
-                uint32 rnd = urand(0, 3);
-                std::string msg = "";
-
-                switch (rnd)
+                if (botAI->HasSpell(candidate) && botAI->CanCastSpell(candidate, requester))
                 {
-                case 0:
-                    msg = "its true, " + word[verb_pos + 1] + " " + word[verb_pos] + " " + word[verb_pos + 2] + " " + word[verb_pos + 3] + " " + word[verb_pos + 4] + " " + word[verb_pos + 4];
-                    break;
-                case 1:
-                    msg = "ya %s but thats in the past";
-                    break;
-                case 2:
-                    msg = "nah, but " + word[verb_pos + 1] + " will " + word[verb_pos + 3] + " again though %s";
-                    break;
-                case 3:
-                    msg = "afraid that was before i was around or paying attention";
+                    spellName = candidate;
                     break;
                 }
-                msg = std::regex_replace(msg, std::regex("%s"), name);
-                respondsText = msg;
-                found = true;
-                break;
-            }
-            case 2:
-            {
-                uint32 rnd = urand(0, 6);
-                std::string msg = "";
-
-                switch (rnd)
-                {
-                case 0:
-                    msg = "its true, " + word[verb_pos + 1] + " " + word[verb_pos] + " " + word[verb_pos + 2] + " " + word[verb_pos + 3] + " " + word[verb_pos + 4] + " " + word[verb_pos + 5];
-                    break;
-                case 1:
-                    msg = "ya %s thats true";
-                    break;
-                case 2:
-                    msg = "maybe " + word[verb_pos + 1] + " " + word[verb_pos] + " " + word[verb_pos + 2] + " " + word[verb_pos + 3] + " " + word[verb_pos + 4] + " " + word[verb_pos + 5];
-                    break;
-                case 3:
-                    msg = "dunno %s";
-                    break;
-                case 4:
-                    msg = "i dont think so %s";
-                    break;
-                case 5:
-                    msg = "yes";
-                    break;
-                case 6:
-                    msg = "no";
-                    break;
-                }
-                msg = std::regex_replace(msg, std::regex("%s"), name);
-                respondsText = msg;
-                found = true;
-                break;
-            }
-            case 3:
-            {
-                uint32 rnd = urand(0, 8);
-                std::string msg = "";
-
-                switch (rnd)
-                {
-                case 0:
-                    msg = "dunno %s";
-                    break;
-                case 1:
-                    msg = "beats me %s";
-                    break;
-                case 2:
-                    msg = "how should i know %s";
-                    break;
-                case 3:
-                    msg = "dont ask me %s, im just a bot";
-                    break;
-                case 4:
-                    msg = "your asking the wrong person";
-                    break;
-                case 5:
-                    msg = "what do i look like, a psychic?";
-                    break;
-                case 6:
-                    msg = "sure %s";
-                    break;
-                case 7:
-                    msg = "i dont think so %s";
-                    break;
-                case 8:
-                    msg = "maybe";
-                    break;
-                }
-                msg = std::regex_replace(msg, std::regex("%s"), name);
-                respondsText = msg;
-                found = true;
-                break;
-            }
             }
         }
+
+        if (spellName.empty())
+        {
+            SendConversationAck(bot, chatChannelSource, "dialog_cannot_buff", name,
+                                {"sorry %s, i dont have a buff for you", "i cant buff you %s",
+                                 "afraid i have nothing for you %s"});
+            return true;
         }
+
+        CastBuffOnPlayer(botAI, requester, spellName);
+        SendConversationAck(bot, chatChannelSource, "dialog_buff_done", name,
+                            {"there you go %s", "enjoy %s", "buffs are up %s"}, {{"%spell", spellName}});
+        return true;
     }
-    else if (!found)
+
+    if (flags & (ConversationRequestFlags::FOOD | ConversationRequestFlags::WATER))
     {
-        switch (verb_type)
-        {
-        case 1:
-        {
-            uint32 rnd = urand(0, 2);
-            std::string msg = "";
+        bool const wantFood = (flags & ConversationRequestFlags::FOOD) != 0;
+        bool const wantWater = (flags & ConversationRequestFlags::WATER) != 0;
 
-            switch (rnd)
-            {
-            case 0:
-                msg = "yeah %s, the key word being " + word[verb_pos] + " " + word[verb_pos + 1];
-                break;
-            case 1:
-                msg = "ya %s but thats in the past";
-                break;
-            case 2:
-                msg = word[verb_pos ? verb_pos - 1 : verb_pos + 1] + " will " + word[verb_pos + 1] + " again though %s";
-                break;
-            }
-            msg = std::regex_replace(msg, std::regex("%s"), name);
-            respondsText = msg;
-            found = true;
-            break;
-        }
-        case 2:
+        if (bot->IsInCombat() || !IsNear(bot, requester) || bot->getClass() != CLASS_MAGE)
         {
-            uint32 rnd = urand(0, 2);
-            std::string msg = "";
-
-            switch (rnd)
-            {
-            case 0:
-                msg = "%s, what do you mean " + word[verb_pos + 1] + "?";
-                break;
-            case 1:
-                msg = "%s, what is a " + word[verb_pos + 1] + "?";
-                break;
-            case 2:
-                msg = "yeah i know " + word[verb_pos ? verb_pos - 1 : verb_pos + 1] + " is a " + word[verb_pos + 1];
-                break;
-            }
-            msg = std::regex_replace(msg, std::regex("%s"), name);
-            respondsText = msg;
-            found = true;
-            break;
+            SendConversationAck(bot, chatChannelSource, "dialog_cannot_conjure", name,
+                                {"sorry %s, i cant conjure that", "i dont conjure those %s",
+                                 "not a mage, sorry %s"});
+            return true;
         }
-        case 3:
+
+        bool acted = false;
+        if (wantFood)
+            acted = ConjureAndTradeTo(botAI, requester, "conjure food", "conjured food") || acted;
+
+        if (wantWater)
+            acted = ConjureAndTradeTo(botAI, requester, "conjure water", "conjured water") || acted;
+
+        if (acted)
         {
-            uint32 rnd = urand(0, 1);
-            std::string msg = "";
-
-            switch (rnd)
-            {
-            case 0:
-                msg = "are you sure thats going to happen %s?";
-                break;
-            case 1:
-                msg = "%s, what will happen %s?";
-                break;
-            case 2:
-                msg = "are you saying " + word[verb_pos ? verb_pos - 1 : verb_pos + 1] + " will " + word[verb_pos + 1] + " " + word[verb_pos + 2] + " %s?";
-                break;
-            }
-            msg = std::regex_replace(msg, std::regex("%s"), name);
-            respondsText = msg;
-            found = true;
-            break;
+            SendConversationAck(bot, chatChannelSource, "dialog_conjured_done", name,
+                                {"there you go %s", "freshly conjured %s", "enjoy %s", "here you go %s"});
         }
+        else
+        {
+            SendConversationAck(bot, chatChannelSource, "dialog_cannot_conjure", name,
+                                {"sorry %s, conjuring didnt work", "give me a moment %s, conjuring failed"});
         }
+        return true;
     }
 
-    if (!found)
-    {
-        // Name Responds
-        if (incomingMessage.find(bot->GetName()) != std::string::npos)
-        {
-            replyType = REPLY_NAME;
-            found = true;
-        }
-        else  // Does not understand
-        {
-            replyType = REPLY_NOT_UNDERSTAND;
-            found = true;
-        }
-    }
-
-    // load text if needed
-    if (respondsText.empty())
-    {
-        respondsText = PlayerbotTextMgr::instance().GetBotText(replyType, name);
-    }
-
-    if (respondsText.size() > 255)
-    {
-        respondsText.resize(255);
-    }
-
-    return respondsText;
+    return false;
 }

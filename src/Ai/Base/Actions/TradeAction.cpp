@@ -22,11 +22,10 @@ bool TradeAction::Execute(Event event)
             return false;
     }
 
+    Player* player = nullptr;
     if (!bot->GetTrader())
     {
         GuidVector guids = chat->parseGameobjects(text);
-        Player* player = nullptr;
-
         for (auto& guid : guids)
             if (guid.IsPlayer())
                 player = ObjectAccessor::FindPlayer(guid);
@@ -36,16 +35,28 @@ bool TradeAction::Execute(Event event)
 
         if (!player)
             return false;
+    }
 
-        if (!player->GetTrader())
-        {
-            WorldPacket packet(CMSG_INITIATE_TRADE);
-            packet << player->GetGUID();
-            bot->GetSession()->HandleInitiateTradeOpcode(packet);
-            return true;
-        }
-        else if (player->GetTrader() != bot)
+    return TradeWith(player ? player : bot->GetTrader(), text);
+}
+
+bool TradeAction::TradeWith(Player* player, std::string const& text)
+{
+    if (!player || player == bot)
+        return false;
+
+    if (!bot->GetTrader())
+    {
+        if (player->GetTrader() && player->GetTrader() != bot)
             return false;
+
+        WorldPacket packet(CMSG_INITIATE_TRADE);
+        packet << player->GetGUID();
+        bot->GetSession()->HandleInitiateTradeOpcode(packet);
+    }
+    else if (bot->GetTrader() != player)
+    {
+        return false;
     }
 
     uint32 copper = chat->parseMoney(text);
