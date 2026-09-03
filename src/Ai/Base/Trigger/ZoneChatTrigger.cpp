@@ -29,7 +29,7 @@ bool ZoneChatTrigger::IsActive()
     if (!bot || !bot->GetSession() || !bot->GetMap())
         return false;
 
-    if (bot->IsInCombat() || bot->IsInBattleground())
+    if (bot->IsInCombat() || bot->InBattleground())
         return false;
 
     Map* map = bot->GetMap();
