@@ -1203,9 +1203,6 @@ void PlayerbotAI::HandleBotOutgoingPacket(WorldPacket const& packet)
             if (!sPlayerbotAIConfig.randomBotTalk)
                 return;
 
-            if (!AllowActivity())
-                return;
-
             WorldPacket p(packet);
             if (!p.empty() && (p.GetOpcode() == SMSG_MESSAGECHAT || p.GetOpcode() == SMSG_GM_MESSAGECHAT))
             {
@@ -1262,6 +1259,12 @@ void PlayerbotAI::HandleBotOutgoingPacket(WorldPacket const& packet)
                     isFromFreeBot = sPlayerbotAIConfig.IsInRandomAccountList(accountId);
                     bool isAddressed = (msgtype == CHAT_MSG_WHISPER) || IsBotMentioned(bot, message);
 
+                    // Directly addressed bots always reply, even while the bot is
+                    // momentarily considered inactive. Unaddressed chatter still
+                    // requires an active bot.
+                    if (!isAddressed && !AllowActivity())
+                        return;
+
                     // ChatChannelSource chatChannelSource = GetChatChannelSource(bot, msgtype, chanName);
 
                     // random bot speaks, chat CD (addressed bots may still answer)
@@ -1316,9 +1319,12 @@ void PlayerbotAI::HandleBotOutgoingPacket(WorldPacket const& packet)
                             return;
                     }
 
+                    // Directly addressed conversations are answered promptly; ambient
+                    // replies keep the longer randomized window.
+                    uint32 const replyDelay = isAddressed ? urand(2, 6)
+                                                          : urand(inCombat ? 10 : 5, inCombat ? 25 : 15);
                     QueueChatResponse(ChatQueuedReply{msgtype, guid1.GetCounter(), guid2.GetCounter(), message,
-                                                      chanName, name,
-                                                      time(nullptr) + urand(inCombat ? 10 : 5, inCombat ? 25 : 15)});
+                                                      chanName, name, time(nullptr) + replyDelay});
                     GetAiObjectContext()->GetValue<time_t>("last said", "chat")->Set(time(0) + urand(5, 25));
                     return;
                 }
