@@ -2619,6 +2619,14 @@ AiPlayerbot.ChatReplySingleSpeaker = 1
 # but never functional.
 AiPlayerbot.ConversationActions = 1
 
+# Bots periodically say a fitting line in their zone's General chat (ambient zone
+# chatter). Requires RandomBotTalk = 1. Per-bot interval in seconds.
+AiPlayerbot.ZoneChat = 1
+AiPlayerbot.ZoneChatMinInterval = 120
+AiPlayerbot.ZoneChatMaxInterval = 600
+# Minimum seconds between any two ambient lines in the same zone (zone-wide cap).
+AiPlayerbot.ZoneChatMinGapSeconds = 60
+
 #
 #
 ####################################################################################################

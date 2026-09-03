@@ -25,6 +25,7 @@
 #include "StuckTriggers.h"
 #include "TravelTriggers.h"
 #include "WaitForAttackTriggers.h"
+#include "ZoneChatTrigger.h"
 
 class PlayerbotAI;
 
@@ -44,6 +45,8 @@ public:
         creators["seldom"] = &TriggerContext::seldom;
         creators["often"] = &TriggerContext::often;
         creators["very often"] = &TriggerContext::very_often;
+
+        creators["zone chatter"] = &TriggerContext::zone_chatter;
 
         creators["force rebuff pending"] = &TriggerContext::force_rebuff_pending;
 
@@ -350,6 +353,7 @@ private:
     static Trigger* seldom(PlayerbotAI* botAI) { return new RandomTrigger(botAI, "seldom", 300); }
     static Trigger* often(PlayerbotAI* botAI) { return new RandomTrigger(botAI, "often", 5); }
     static Trigger* very_often(PlayerbotAI* botAI) { return new RandomTrigger(botAI, "often", 3); }
+    static Trigger* zone_chatter(PlayerbotAI* botAI) { return new ZoneChatTrigger(botAI); }
     static Trigger* EnemyOutOfMelee(PlayerbotAI* botAI) { return new EnemyOutOfMeleeTrigger(botAI); }
     static Trigger* EnemyOutOfSpell(PlayerbotAI* botAI) { return new EnemyOutOfSpellRangeTrigger(botAI); }
     static Trigger* enemy_too_close_for_spell(PlayerbotAI* botAI) { return new EnemyTooCloseForSpellTrigger(botAI); }
