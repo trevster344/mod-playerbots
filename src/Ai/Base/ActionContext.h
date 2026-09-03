@@ -69,6 +69,7 @@
 #include "WaitForAttackAction.h"
 #include "WorldBuffAction.h"
 #include "XpGainAction.h"
+#include "ZoneChatAction.h"
 
 class PlayerbotAI;
 
@@ -158,6 +159,7 @@ public:
         creators["drop target"] = &ActionContext::drop_target;
         creators["check mail"] = &ActionContext::check_mail;
         creators["say"] = &ActionContext::say;
+        creators["zone chatter"] = &ActionContext::zone_chatter;
         creators["reveal gathering item"] = &ActionContext::reveal_gathering_item;
         creators["outfit"] = &ActionContext::outfit;
         creators["random bot update"] = &ActionContext::random_bot_update;
@@ -370,6 +372,7 @@ private:
     static Action* set_facing(PlayerbotAI* botAI) { return new SetFacingTargetAction(botAI); }
     static Action* set_behind(PlayerbotAI* botAI) { return new SetBehindTargetAction(botAI); }
     static Action* say(PlayerbotAI* botAI) { return new SayAction(botAI); }
+    static Action* zone_chatter(PlayerbotAI* botAI) { return new ZoneChatAction(botAI); }
     static Action* reveal_gathering_item(PlayerbotAI* botAI) { return new RevealGatheringItemAction(botAI); }
     static Action* outfit(PlayerbotAI* botAI) { return new OutfitAction(botAI); }
     static Action* random_bot_update(PlayerbotAI* botAI) { return new RandomBotUpdateAction(botAI); }
