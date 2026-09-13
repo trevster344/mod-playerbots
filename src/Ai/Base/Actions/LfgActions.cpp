@@ -101,13 +101,14 @@ bool LfgJoinAction::JoinLFG()
     LfgDungeonSet list;
     std::vector<uint32> selected;
 
-    std::vector<uint32> dungeons = RandomPlayerbotMgr::instance().LfgDungeons[bot->GetTeamId()];
+    std::vector<RandomPlayerbotMgr::LfgQueueEntry> dungeons =
+        RandomPlayerbotMgr::instance().LfgDungeons[bot->GetTeamId()];
     if (!dungeons.size())
         return false;
 
-    for (std::vector<uint32>::iterator i = dungeons.begin(); i != dungeons.end(); ++i)
+    for (std::vector<RandomPlayerbotMgr::LfgQueueEntry>::iterator i = dungeons.begin(); i != dungeons.end(); ++i)
     {
-        LFGDungeonEntry const* dungeon = sLFGDungeonStore.LookupEntry(*i);
+        LFGDungeonEntry const* dungeon = sLFGDungeonStore.LookupEntry(i->dungeonId);
         if (!dungeon || (dungeon->TypeID != LFG_TYPE_RANDOM && dungeon->TypeID != LFG_TYPE_DUNGEON &&
                          dungeon->TypeID != LFG_TYPE_HEROIC && dungeon->TypeID != LFG_TYPE_RAID))
             continue;
@@ -117,6 +118,11 @@ bool LfgJoinAction::JoinLFG()
         /*LFG_TYPE_RANDOM on classic is 15-58 so bot over level 25 will never queue*/
         if ((dungeon->MinLevel && (botLevel < dungeon->MinLevel || botLevel > dungeon->MaxLevel)) ||
             (botLevel > dungeon->MinLevel + 10 && dungeon->TypeID == LFG_TYPE_DUNGEON))
+            continue;
+
+        // Only queue bots close to the level of the real player who queued this dungeon.
+        uint32 const levelRange = sPlayerbotAIConfig.randomBotJoinLfgLevelRange;
+        if (levelRange > 0 && (botLevel + levelRange < i->playerLevel || botLevel > i->playerLevel + levelRange))
             continue;
 
         selected.push_back(dungeon->ID);
