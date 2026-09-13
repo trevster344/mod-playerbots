@@ -11,6 +11,7 @@
 #include "Config.h"
 #include "DatabaseEnv.h"
 #include "DatabaseLoader.h"
+#include "GroupMgr.h"
 #include "GuildTaskMgr.h"
 #include "PlayerScript.h"
 #include "PlayerbotAIConfig.h"
@@ -381,19 +382,70 @@ public:
     bool OnPlayerbotCheckLFGQueue(lfg::Lfg5Guids const& guidsList) override
     {
         bool nonBotFound = false;
+        bool haveLevel = false;
+        uint8 minLevel = 0;
+        uint8 maxLevel = 0;
+
+        auto recordLevel = [&](uint8 level)
+        {
+            if (!haveLevel)
+            {
+                minLevel = maxLevel = level;
+                haveLevel = true;
+            }
+            else
+            {
+                if (level < minLevel)
+                    minLevel = level;
+                if (level > maxLevel)
+                    maxLevel = level;
+            }
+        };
 
         for (ObjectGuid const& guid : guidsList.guids)
         {
-            Player* player = ObjectAccessor::FindPlayer(guid);
+            if (!guid)
+                continue;
 
-            if (guid.IsGroup() || IsRealPlayer(player) || IsSelfBot(player))
+            if (guid.IsGroup())
             {
                 nonBotFound = true;
-                break;
+
+                if (Group* group = sGroupMgr->GetGroupByGUID(guid.GetCounter()))
+                {
+                    for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
+                    {
+                        if (Player* member = ref->GetSource())
+                            recordLevel(member->GetLevel());
+                    }
+                }
+            }
+            else
+            {
+                Player* player = ObjectAccessor::FindPlayer(guid);
+                if (IsRealPlayer(player) || IsSelfBot(player))
+                    nonBotFound = true;
+
+                if (player)
+                    recordLevel(player->GetLevel());
             }
         }
 
-        return nonBotFound;
+        if (!nonBotFound)
+            return false;
+
+        // Reject groups whose level spread is wider than configured, so a real player is never
+        // matched with randombots far above or below their level. The core skips this compatible
+        // set and tries the next one.
+        uint32 const levelRange = sPlayerbotAIConfig.randomBotJoinLfgLevelRange;
+        if (levelRange > 0 && haveLevel && uint32(maxLevel - minLevel) > levelRange)
+        {
+            LOG_DEBUG("playerbots", "LFG proposal rejected: level spread {} ({} - {}) exceeds {}",
+                      uint32(maxLevel - minLevel), uint32(minLevel), uint32(maxLevel), levelRange);
+            return false;
+        }
+
+        return true;
     }
 
     void OnPlayerbotCheckKillTask(Player* player, Unit* victim) override

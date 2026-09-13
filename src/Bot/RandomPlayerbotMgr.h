@@ -151,7 +151,16 @@ public:
     std::map<uint32, std::map<uint32, BattlegroundInfo>> BattlegroundData;
     std::map<uint32, std::map<uint32, std::map<TeamId, uint32>>> VisualBots;
     std::map<uint32, std::map<uint32, std::map<uint32, uint32>>> Supporters;
-    std::map<TeamId, std::vector<uint32>> LfgDungeons;
+
+    // A dungeon a real player is queued for, paired with that player's level, so randombots can
+    // only join at a level close to the player's (see AiPlayerbot.RandomBotJoinLfgLevelRange).
+    struct LfgQueueEntry
+    {
+        uint32 dungeonId;
+        uint8 playerLevel;
+    };
+
+    std::map<TeamId, std::vector<LfgQueueEntry>> LfgDungeons;
     void CheckBgQueue();
     void CheckLfgQueue();
     void CheckPlayers();
